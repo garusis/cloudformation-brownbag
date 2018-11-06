@@ -1,0 +1,7 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "Cloudformation example template for Belatrix Brown Bag",
+    "Parameters": {},
+    "Resources": {},
+    "Outputs": {}
+}

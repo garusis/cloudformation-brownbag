@@ -2,6 +2,20 @@
     "AWSTemplateFormatVersion": "2010-09-09",
     "Description": "Cloudformation example template for Belatrix Brown Bag",
     "Parameters": {},
-    "Resources": {},
+    "Resources": {
+        "FrontendBucket": {
+            "Type": "AWS::S3::Bucket",
+            "Properties": {
+                "AccessControl": "Private",
+                "BucketName": {
+                    "Fn::Sub": "${AWS::StackName}-frontend"
+                },
+                "WebsiteConfiguration": {
+                    "IndexDocument": "index.html",
+                    "ErrorDocument": "index.html"
+                }
+            }
+        }
+    },
     "Outputs": {}
 }

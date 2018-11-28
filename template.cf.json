@@ -1,56 +1,230 @@
 {
-    "AWSTemplateFormatVersion": "2010-09-09",
-    "Description": "Cloudformation example template for Belatrix Brown Bag",
-    "Parameters": {},
-    "Resources": {
-        "FrontendBucket": {
-            "Type": "AWS::S3::Bucket",
-            "Properties": {
-                "AccessControl": "Private",
-                "BucketName": {
-                    "Fn::Sub": "${AWS::StackName}-frontend"
-                },
-                "WebsiteConfiguration": {
-                    "IndexDocument": "index.html",
-                    "ErrorDocument": "index.html"
-                }
-            }
-        },
-        "FrontendBucketPolicy": {
-            "Type": "AWS::S3::BucketPolicy",
-            "Properties": {
-                "Bucket": {
-                    "Ref": "FrontendBucket"
-                },
-                "PolicyDocument": {
-                    "Statement": [
-                        {
-                            "Sid": "PublicReadGetObject",
-                            "Effect": "Allow",
-                            "Principal": "*",
-                            "Action": [
-                                "s3:GetObject",
-                                "s3:PutObject"
-                            ],
-                            "Resource": {
-                                "Fn::Join": [
-                                    "",
-                                    [
-                                        {
-                                            "Fn::GetAtt": [
-                                                "FrontendBucket",
-                                                "Arn"
-                                            ]
-                                        },
-                                        "/*"
-                                    ]
-                                ]
-                            }
-                        }
-                    ]
-                }
-            }
-        }
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Cloudformation example template for Belatrix Brown Bag",
+  "Parameters": {
+    "Environment": {
+      "Type": "String",
+      "Default": "develop",
+      "Description": "Execution enviroment for this stack"
     },
-    "Outputs": {}
+    "ParameterPassword": {
+      "Type": "String",
+      "Default": "",
+      "Description": "A password just for test",
+      "NoEcho": true
+    }
+  },
+  "Resources": {
+    "FrontendBucket": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "AccessControl": "Private",
+        "BucketName": {
+          "Fn::Sub": "${AWS::StackName}-frontend"
+        },
+        "WebsiteConfiguration": {
+          "IndexDocument": "index.html",
+          "ErrorDocument": "index.html"
+        }
+      }
+    },
+    "FrontendBucketPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": {
+          "Ref": "FrontendBucket"
+        },
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Sid": "PublicReadGetObject",
+              "Effect": "Allow",
+              "Principal": "*",
+              "Action": [
+                "s3:GetObject",
+                "s3:PutObject"
+              ],
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    {
+                      "Fn::GetAtt": [
+                        "FrontendBucket",
+                        "Arn"
+                      ]
+                    },
+                    "/*"
+                  ]
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "AppLambdaFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Code": {
+          "ZipFile": {
+            "Fn::Join": [
+              "\n",
+              [
+                "// Lambda",
+                "exports.handler = (event, context, callback) => {",
+                "  console.log('NODE_ENV: ', process.env.NODE_ENV);",
+                "  console.log('TEST_PASSWORD: ', process.env.TEST_PASSWORD);",
+                "  console.log('Event:', JSON.stringify(event));",
+                "  callback(null, \"Hello World!\");",
+                "};"
+              ]
+            ]
+          }
+        },
+        "FunctionName": {
+          "Fn::Sub": "${AWS::StackName}_backend"
+        },
+        "Handler": "index.handler",
+        "MemorySize": 1024,
+        "Role": {
+          "Fn::GetAtt": [
+            "IamRoleLambdaExecution",
+            "Arn"
+          ]
+        },
+        "Runtime": "nodejs8.10",
+        "Timeout": 60,
+        "Environment": {
+          "Variables": {
+            "NODE_ENV": {
+              "Ref": "Environment"
+            },
+            "TEST_PASSWORD": {
+              "Ref": "ParameterPassword"
+            },
+            "STACK_NAME": {
+              "Fn::Sub": "${AWS::StackName}"
+            },
+            "DEBUG": "APP::*"
+          }
+        }
+      },
+      "DependsOn": [
+        "AppLogGroup",
+        "IamRoleLambdaExecution"
+      ]
+    },
+    "AppLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "LogGroupName": {
+          "Fn::Sub": "/aws/lambda/${AWS::StackName}_backend"
+        }
+      }
+    },
+    "IamRoleLambdaExecution": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": {
+              "Fn::Join": [
+                "-",
+                [
+                  {
+                    "Ref": "Environment"
+                  },
+                  "back",
+                  "lambda"
+                ]
+              ]
+            },
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:CreateLogStream"
+                  ],
+                  "Resource": [
+                    {
+                      "Fn::Join": [
+                        "",
+                        [
+                          {
+                            "Fn::GetAtt": [
+                              "AppLogGroup",
+                              "Arn"
+                            ]
+                          },
+                          ":*"
+                        ]
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:PutLogEvents"
+                  ],
+                  "Resource": [
+                    {
+                      "Fn::Join": [
+                        "",
+                        [
+                          {
+                            "Fn::GetAtt": [
+                              "AppLogGroup",
+                              "Arn"
+                            ]
+                          },
+                          ":*:*"
+                        ]
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "Path": "/",
+        "RoleName": {
+          "Fn::Join": [
+            "-",
+            [
+              "back",
+              {
+                "Ref": "Environment"
+              },
+              {
+                "Ref": "AWS::Region"
+              },
+              "lambdaRole"
+            ]
+          ]
+        }
+      }
+    }
+  },
+  "Outputs": {}
 }

@@ -71,12 +71,67 @@
             "Fn::Join": [
               "\n",
               [
-                "// Lambda",
-                "exports.handler = (event, context, callback) => {",
-                "  console.log('NODE_ENV: ', process.env.NODE_ENV);",
-                "  console.log('TEST_PASSWORD: ', process.env.TEST_PASSWORD);",
-                "  console.log('Event:', JSON.stringify(event));",
-                "  callback(null, \"Hello World!\");",
+                "const aws = require('aws-sdk')",
+                "",
+                "const docClient = new aws.DynamoDB.DocumentClient()",
+                "const tableName = process.env.USER_TABLE",
+                "",
+                "async function fill(event, context, callback) {",
+                "  const users = [",
+                "    {",
+                "      user_id: '1',",
+                "      name: 'Pepe',",
+                "      lastName: 'Grillo'",
+                "    },",
+                "    {",
+                "      user_id: '2',",
+                "      name: 'Mr.',",
+                "      lastName: 'Gold'",
+                "    },",
+                "    {",
+                "      user_id: '3',",
+                "      name: 'Emma',",
+                "      lastName: 'Swan'",
+                "    }",
+                "  ]",
+                "  await Promise.all(users.map(user => docClient.put({TableName: tableName, Item: user}).promise()))",
+                "  ",
+                "  var response = {",
+                "    'isBase64Encoded': false,",
+                "    'headers': { 'Access-Control-Allow-Origin': '*' , 'Access-Control-Allow-Methods': 'POST, GET, OPTIONS'},",
+                "    'statusCode': 200,",
+                "    'body': 'OK'",
+                "  };",
+                "  callback(null, response);",
+                "}",
+                "",
+                "async function list(event, context, callback) {",
+                "  const params = {TableName: tableName, Select: 'ALL_ATTRIBUTES'}",
+                "  const {Items} = await docClient.scan(params).promise()",
+                "  ",
+                "  var response = {",
+                "    'isBase64Encoded': false,",
+                "    'headers': { 'Access-Control-Allow-Origin': '*' , 'Access-Control-Allow-Methods': 'POST, GET, OPTIONS'},",
+                "    'statusCode': 200,",
+                "    'body': JSON.stringify(Items)",
+                "  };",
+                "  callback(null, response);",
+                "}",
+                "",
+                "exports.handler = async function(event, context, callback){",
+                "  if(event.httpMethod === 'OPTIONS'){",
+                "    var response = {",
+                "      'isBase64Encoded': false,",
+                "      'headers': { 'Access-Control-Allow-Origin': '*' , 'Access-Control-Allow-Methods': 'POST, GET, OPTIONS'},",
+                "      'statusCode': 200,",
+                "      'body': 'OK'",
+                "    };",
+                "    callback(null, response);",
+                "  } else if(event.path === '/fill'){",
+                "    await fill(event, context, callback)",
+                "  } else if(event.path === '/list'){",
+                "    await list(event, context, callback)",
+                "  }",
                 "};"
               ]
             ]
@@ -102,6 +157,9 @@
             },
             "TEST_PASSWORD": {
               "Ref": "ParameterPassword"
+            },
+            "USER_TABLE": {
+              "Ref": "UsersDynamoDbTable"
             },
             "STACK_NAME": {
               "Fn::Sub": "${AWS::StackName}"
@@ -166,17 +224,9 @@
                   ],
                   "Resource": [
                     {
-                      "Fn::Join": [
-                        "",
-                        [
-                          {
-                            "Fn::GetAtt": [
-                              "AppLogGroup",
-                              "Arn"
-                            ]
-                          },
-                          ":*"
-                        ]
+                      "Fn::GetAtt": [
+                        "AppLogGroup",
+                        "Arn"
                       ]
                     }
                   ]
@@ -197,8 +247,27 @@
                               "Arn"
                             ]
                           },
-                          ":*:*"
+                          ":*"
                         ]
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "dynamodb:Query",
+                    "dynamodb:Scan",
+                    "dynamodb:GetItem",
+                    "dynamodb:PutItem",
+                    "dynamodb:UpdateItem",
+                    "dynamodb:DeleteItem"
+                  ],
+                  "Resource": [
+                    {
+                      "Fn::GetAtt": [
+                        "UsersDynamoDbTable",
+                        "Arn"
                       ]
                     }
                   ]
@@ -224,7 +293,252 @@
           ]
         }
       }
+    },
+    "UsersDynamoDbTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "user_id",
+            "AttributeType": "S"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "user_id",
+            "KeyType": "HASH"
+          }
+        ],
+        "ProvisionedThroughput": {
+          "ReadCapacityUnits": 1,
+          "WriteCapacityUnits": 1
+        },
+        "TableName": {
+          "Fn::Sub": "${AWS::StackName}_Users"
+        }
+      }
+    },
+    "ApiGatewayRestApi": {
+      "Type": "AWS::ApiGateway::RestApi",
+      "Properties": {
+        "Name": {
+          "Fn::Join": [
+            "",
+            [
+              {
+                "Ref": "Environment"
+              },
+              "-back"
+            ]
+          ]
+        },
+        "EndpointConfiguration": {
+          "Types": [
+            "EDGE"
+          ]
+        }
+      }
+    },
+    "ApiGatewayResourceProxyVar": {
+      "Type": "AWS::ApiGateway::Resource",
+      "Properties": {
+        "ParentId": {
+          "Fn::GetAtt": [
+            "ApiGatewayRestApi",
+            "RootResourceId"
+          ]
+        },
+        "PathPart": "{proxy+}",
+        "RestApiId": {
+          "Ref": "ApiGatewayRestApi"
+        }
+      }
+    },
+    "ApiGatewayMethodAny": {
+      "Type": "AWS::ApiGateway::Method",
+      "Properties": {
+        "HttpMethod": "ANY",
+        "RequestParameters": {},
+        "ResourceId": {
+          "Fn::GetAtt": [
+            "ApiGatewayRestApi",
+            "RootResourceId"
+          ]
+        },
+        "RestApiId": {
+          "Ref": "ApiGatewayRestApi"
+        },
+        "ApiKeyRequired": false,
+        "AuthorizationType": "NONE",
+        "Integration": {
+          "IntegrationHttpMethod": "POST",
+          "Type": "AWS_PROXY",
+          "Uri": {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition"
+                },
+                ":apigateway:",
+                {
+                  "Ref": "AWS::Region"
+                },
+                ":lambda:path/2015-03-31/functions/",
+                {
+                  "Fn::GetAtt": [
+                    "AppLambdaFunction",
+                    "Arn"
+                  ]
+                },
+                "/invocations"
+              ]
+            ]
+          }
+        },
+        "MethodResponses": []
+      }
+    },
+    "ApiGatewayMethodProxyVarAny": {
+      "Type": "AWS::ApiGateway::Method",
+      "Properties": {
+        "HttpMethod": "ANY",
+        "RequestParameters": {},
+        "ResourceId": {
+          "Ref": "ApiGatewayResourceProxyVar"
+        },
+        "RestApiId": {
+          "Ref": "ApiGatewayRestApi"
+        },
+        "ApiKeyRequired": false,
+        "AuthorizationType": "NONE",
+        "Integration": {
+          "IntegrationHttpMethod": "POST",
+          "Type": "AWS_PROXY",
+          "Uri": {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition"
+                },
+                ":apigateway:",
+                {
+                  "Ref": "AWS::Region"
+                },
+                ":lambda:path/2015-03-31/functions/",
+                {
+                  "Fn::GetAtt": [
+                    "AppLambdaFunction",
+                    "Arn"
+                  ]
+                },
+                "/invocations"
+              ]
+            ]
+          }
+        },
+        "MethodResponses": []
+      }
+    },
+    "ApiGatewayDeployment": {
+      "Type": "AWS::ApiGateway::Deployment",
+      "Properties": {
+        "RestApiId": {
+          "Ref": "ApiGatewayRestApi"
+        },
+        "StageName": {
+          "Ref": "Environment"
+        }
+      },
+      "DependsOn": [
+        "ApiGatewayMethodAny",
+        "ApiGatewayMethodProxyVarAny"
+      ]
+    },
+    "AppLambdaPermissionApiGateway": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "FunctionName": {
+          "Fn::GetAtt": [
+            "AppLambdaFunction",
+            "Arn"
+          ]
+        },
+        "Action": "lambda:InvokeFunction",
+        "Principal": {
+          "Fn::Join": [
+            "",
+            [
+              "apigateway.",
+              {
+                "Ref": "AWS::URLSuffix"
+              }
+            ]
+          ]
+        },
+        "SourceArn": {
+          "Fn::Join": [
+            "",
+            [
+              "arn:",
+              {
+                "Ref": "AWS::Partition"
+              },
+              ":execute-api:",
+              {
+                "Ref": "AWS::Region"
+              },
+              ":",
+              {
+                "Ref": "AWS::AccountId"
+              },
+              ":",
+              {
+                "Ref": "ApiGatewayRestApi"
+              },
+              "/*/*"
+            ]
+          ]
+        }
+      }
     }
   },
-  "Outputs": {}
+  "Outputs": {
+    "ServiceEndpoint": {
+      "Description": "URL of the service endpoint",
+      "Value": {
+        "Fn::Join": [
+          "",
+          [
+            "https://",
+            {
+              "Ref": "ApiGatewayRestApi"
+            },
+            {
+              "Fn::Sub": ".execute-api.${AWS::Region}."
+            },
+            {
+              "Ref": "AWS::URLSuffix"
+            },
+            "/",
+            {
+              "Ref": "Environment"
+            }
+          ]
+        ]
+      }
+    },
+    "WebsiteURL": {
+      "Description": "URL of the frontend",
+      "Value": {
+        "Fn::GetAtt": [
+          "FrontendBucket",
+          "WebsiteURL"
+        ]
+      }
+    }
+  }
 }
